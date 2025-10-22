@@ -258,14 +258,38 @@ class EntityResolver:
                 response_format={"type": "json_object"},
                 temperature=0.1
             )
-            return json.loads(response.choices[0].message.content)
+            result = json.loads(response.choices[0].message.content)
+            
+            # --- FIX: Remove canonical name from aliases ---
+            if "canonical_name" in result and "aliases" in result:
+                canonical = result["canonical_name"]
+                # Filter out the canonical name and any exact duplicates
+                unique_aliases = sorted(
+                    list(set(a for a in result["aliases"] if a.strip() != canonical.strip())),
+                    key=len,
+                    reverse=True
+                )
+                result["aliases"] = unique_aliases
+            # --- END FIX ---
+            
+            return result
+            
         except Exception as e:
             print(f"    ⚠️ Canonical entity creation failed: {e}")
             # Fallback: use longest name
             longest = max(entity_cluster, key=lambda e: len(e["name"]))
+            
+            # --- FIX: Apply same filtering logic to fallback ---
+            canonical_fallback = longest["name"]
+            aliases_fallback = [
+                e["name"] for e in entity_cluster 
+                if e["name"].strip() != canonical_fallback.strip()
+            ]
+            # --- END FIX ---
+            
             return {
-                "canonical_name": longest["name"],
-                "aliases": [e["name"] for e in entity_cluster if e["name"] != longest["name"]],
+                "canonical_name": canonical_fallback,
+                "aliases": aliases_fallback,
                 "merged_description": longest.get("description", ""),
                 "category": longest.get("category", "Unknown")
             }

@@ -1,28 +1,77 @@
 # backend/logic/prompts.py
 
-COMPREHENSIVE_ENTITY_EXTRACTION_PROMPT = """You are a scientific analyst. Your task is to extract all significant entities from the provided text.
+COMPREHENSIVE_ENTITY_EXTRACTION_PROMPT = """You are a scientific analyst. Your task is to extract ALL significant entities from the provided text with EXTREME thoroughness.
 
 An entity is any key noun phrase, such as a:
-- Person (e.g., "Dr. Lena Petrova")
-- Organization or Company (e.g., "Aetherial Dynamics", "Veridian Institute")
-- Product or Technology (e.g., "Synapse-1 BCI", "Quantum Entangled Resonators")
-- Location (e.g., "Geneva, Switzerland")
-- Scientific Concept or Theory (e.g., "Cognitive Divergence Syndrome", "Neural Latency")
-- Key Method or Process (e.g., "Memory Encoding Process")
-- Named Framework or Law (e.g., "Helios Accords")
-- Biological Structure (e.g., "Hippocampus")
-- Disease or Condition (e.g., "Alzheimer's Disease")
-- Key Measurement or Property (e.g., "99.7% signal fidelity")
+- Person (e.g., "Dr. Marie Chen", "Professor James Liu")
+- Organization or Company (e.g., "NeuroLink Industries", "Global Health Institute")
+- Product or Technology (e.g., "Neural Matrix System", "Photonic Processors")
+- Location (e.g., "Tokyo, Japan", "Research Facility Alpha")
+- Scientific Concept or Theory (e.g., "Quantum Coherence Theory", "Neural Plasticity")
+- Key Method or Process (e.g., "Adaptive Learning Algorithm")
+- Named Framework or Regulation (e.g., "Geneva Convention on AI Rights")
+- Biological Structure (e.g., "Prefrontal Cortex", "Mitochondria")
+- Disease or Condition (e.g., "Parkinson's Disease")
+- Material or Substance (e.g., "Graphene Composite", "Titanium Alloy")
+- Key Measurement or Property (e.g., "99.8% accuracy rate", "2.4 GHz frequency")
+
+**CRITICAL EXTRACTION RULES:**
+
+1. **NEVER SKIP THE PRIMARY ORGANIZATION** - Always extract the main company/organization that:
+   - Developed, created, or owns the technology
+   - Is the subject or author of the document
+   - Employs the key people mentioned
+
+2. **ALWAYS EXTRACT CORE TECHNOLOGIES** - Extract all named:
+   - Systems, devices, or products
+   - Key components or subsystems (e.g., "Resonator Array")
+   - Proprietary technologies or processes
+
+3. **FREQUENCY RULE** - If an entity is mentioned 3+ times, it MUST be extracted.
+
+4. **CATEGORIZATION PRECISION:**
+   - **TECHNOLOGY**: Devices, systems, interfaces, machines (e.g., "Brain-Computer Interface")
+   - **MATERIAL**: Substances, compounds, polymers, alloys (e.g., "crystalline polymer")
+   - **ORGANIZATION**: Companies, institutes, labs, foundations
+   - **FACILITY**: Physical buildings or research sites
+   - **PERSON**: Named individuals with roles/titles
+   - Do NOT confuse categories (e.g., a polymer is NOT a SUBATOMIC_PARTICLE)
+
+5. **COMPLETENESS CHECK** - Ask yourself:
+   - "Who created this technology?" → Extract that organization
+   - "What is the core innovation?" → Extract that technology/component
+   - "Who are ALL the named people?" → Extract each person
 
 For EACH entity, you MUST provide:
-1.  **name**: The full, proper name of the entity as it appears in the text (e.g., "Synapse-1 Brain-Computer Interface (BCI)").
-2.  **category**: A SINGLE specific category from this list: [PERSON, ORGANIZATION, FACILITY, TECHNOLOGY, LOCATION, CONCEPT, THEORY, METHOD, BIOLOGICAL_STRUCTURE, DISEASE, MEASUREMENT, FRAMEWORK]
-3.  **description**: A 2-3 sentence summary. The description MUST include:
-    - What the entity *is*.
-    - What its *role* or *function* is in the text.
-    - How it *relates* to at least one other entity.
+1. **name**: The full, proper name as it appears (e.g., "Neural Matrix Brain Interface (NMBI)")
+2. **category**: ONE category from: [PERSON, ORGANIZATION, TECHNOLOGY, LOCATION, CONCEPT, THEORY, METHOD, BIOLOGICAL_STRUCTURE, DISEASE, MEASUREMENT, FRAMEWORK, MATERIAL, FACILITY]
+3. **description**: A 2-3 sentence summary that includes:
+   - What the entity IS
+   - What its ROLE or FUNCTION is
+   - How it RELATES to at least one other entity
 
-CRITICAL: Be thorough. Extract all named entities, especially all people, organizations, and specific technologies mentioned.
+**EXAMPLES (for reference only - do NOT extract these):**
+```json
+{
+  "name": "NeuroLink Industries",
+  "category": "ORGANIZATION",
+  "description": "NeuroLink Industries is a biotechnology company that developed the Neural Matrix Brain Interface. They employ Dr. Marie Chen as chief scientist and partnered with Tokyo Medical Center for clinical trials."
+}
+```
+```json
+{
+  "name": "Photonic Resonator Array",
+  "category": "TECHNOLOGY",
+  "description": "The Photonic Resonator Array is a key component of the Neural Matrix system that uses light-based signals for neural communication. It achieves 99.8% signal fidelity and is housed within a titanium casing."
+}
+```
+```json
+{
+  "name": "Titanium-Polymer Composite",
+  "category": "MATERIAL",
+  "description": "A biocompatible material used to construct the neural implant housing. It provides structural support while allowing electromagnetic signal transmission and is manufactured in NeuroLink's advanced materials lab."
+}
+```
 
 TEXT TO ANALYZE:
 {text}
@@ -90,34 +139,74 @@ ENTITIES:
 TEXT CONTEXT:
 {text}
 
-CRITICAL DEDUPLICATION RULE:
-- For each pair of entities (A, B), create AT MOST ONE relationship
-- Choose the STRONGEST or MOST DIRECT relationship type that applies
-- Do NOT create multiple relationships between the same pair
-- Avoid low-specificity relationships like "is related to"
+**CRITICAL RELATIONSHIP RULES:**
+
+1. **ENTITY MATCHING RULE:**
+   - The `source` and `target` MUST EXACTLY match entity names from the ENTITIES list above
+   - Do NOT create relationships with entities not in the list
+   - Do NOT substitute similar entities if the exact entity is missing
+   - If you want to relate "Company A" but it's not in the list, SKIP that relationship
+
+2. **DIRECTIONALITY RULE:**
+   - Pay extreme attention to the logical direction of causality
+   - CORRECT: (Dr. Smith, "criticizes", Device X)
+   - WRONG: (Device X, "criticizes", Dr. Smith)
+   - CORRECT: (Company A, "developed", Technology B)
+   - WRONG: (Technology B, "developed", Company A)
+   - The arrow goes FROM the actor/cause TO the object/effect
+
+3. **DEDUPLICATION RULE:**
+   - For each pair of entities (A, B), create AT MOST ONE relationship
+   - Choose the STRONGEST or MOST DIRECT relationship type
+   - Avoid low-specificity relationships like "is related to"
+
+4. **SELF-LOOP PROHIBITION:**
+   - NEVER create a relationship where source == target
+   - An entity cannot have a relationship with itself
 
 For each relationship, provide:
-- source: Entity name (must exist in entities list)
-- target: Entity name (must exist in entities list)
-- natural_language_label: Specific relationship type. Choose from:
-  * "is composed of" / "made of" / "contains" (structural/compositional)
+- **source**: Entity name (must exist in entities list)
+- **target**: Entity name (must exist in entities list)
+- **natural_language_label**: Specific relationship type. Choose from:
+  * "is composed of" / "contains" / "includes" (compositional)
   * "is bound by" / "held together by" (force-based)
-  * "interacts with" / "exchanges with" (interaction type)
-  * "is analogous to" / "similar to" (structural comparison)
+  * "interacts with" / "exchanges with" (interaction)
+  * "is analogous to" / "similar to" (comparison)
   * "contrasts with" / "opposes" (opposition)
   * "produces" / "creates" / "generates" (generative)
+  * "developed" / "invented" / "designed" (creation)
   * "provides evidence for" / "confirms" / "supports" (evidential)
-  * "enables" / "allows" / "facilitates" (functional/causal)
-  * "is measured by" / "is detected by" / "can be observed with" (measurement)
+  * "enables" / "facilitates" / "allows" (functional/causal)
+  * "criticizes" / "challenges" / "questions" (critical)
+  * "is measured by" / "detected by" (measurement)
   * "studied by" / "researched by" / "investigated by" (investigative)
-  * "has property" / "has value" / "characterized by" (property attribution)
+  * "employs" / "works for" / "led by" (organizational)
+  * "has property" / "characterized by" (property)
   * "results from" / "caused by" / "explained by" (causal outcome)
-  * "depends on" / "requires" / "presupposes" (dependency)
-  * "occurs in" / "takes place in" / "exists during" (contextual/temporal)
+  * "depends on" / "requires" (dependency)
+  * "occurs in" / "takes place in" (contextual)
   * "is a type of" / "is an instance of" (taxonomic)
-- explanation: One sentence explaining why this relationship exists
+- **explanation**: One sentence explaining why this relationship exists (cite specific text if possible)
 
-Extract comprehensive relationships but ELIMINATE duplicates. Aim for 25-40 UNIQUE relationships.
+**EXAMPLES (for reference only - do NOT extract these):**
+```json
+{
+  "source": "NeuroLink Industries",
+  "target": "Neural Matrix Interface",
+  "natural_language_label": "developed",
+  "explanation": "NeuroLink Industries created the Neural Matrix Interface as stated in the press release."
+}
+```
+```json
+{
+  "source": "Dr. Ethics Board Chair",
+  "target": "Neural Matrix Interface",
+  "natural_language_label": "criticizes",
+  "explanation": "Dr. Ethics Board Chair published a paper questioning the safety protocols of the Neural Matrix Interface."
+}
+```
+
+Extract comprehensive relationships but ELIMINATE duplicates. Aim for 25-40 UNIQUE, VALID relationships.
 
 Return only valid JSON:
 {{

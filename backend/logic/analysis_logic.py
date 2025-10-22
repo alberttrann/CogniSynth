@@ -132,6 +132,39 @@ def deduplicate_relationships(relationships: List[Dict]) -> List[Dict]:
     
     return list(seen.values())
 
+def validate_extracted_entities(entities: List[Dict], text: str) -> List[str]:
+    """
+    Validate that critical entities were extracted.
+    Returns list of warning messages if important entities are missing.
+    """
+    warnings = []
+    
+    # Check for organizational mentions
+    org_patterns = [
+        r'\b([A-Z][a-z]+ (?:Inc|Corp|Corporation|Industries|Dynamics|Institute|Foundation|Lab|Labs))\b',
+        r'\b([A-Z][a-z]+ [A-Z][a-z]+(?:, Inc| Corporation| Industries)?)\b'
+    ]
+    
+    entity_names = {e.get("name", "").lower() for e in entities}
+    
+    for pattern in org_patterns:
+        matches = re.findall(pattern, text)
+        for match in set(matches):
+            if match.lower() not in entity_names and len(match.split()) <= 3:
+                warnings.append(f"Potential missing organization: '{match}'")
+    
+    # Check for technology/product mentions (capitalized multi-word terms)
+    tech_pattern = r'\b([A-Z][a-z]+(?:-[A-Z0-9])?[a-z]*(?: [A-Z][a-z]+){1,3})\b'
+    tech_matches = re.findall(tech_pattern, text)
+    
+    for match in set(tech_matches):
+        if match.lower() not in entity_names and len(match.split()) >= 2:
+            # Check if mentioned multiple times
+            if text.count(match) >= 3:
+                warnings.append(f"Potential missing technology (mentioned {text.count(match)}x): '{match}'")
+    
+    return warnings
+
 
 async def perform_full_analysis(text: str, model_name: str, task_id: Optional[str] = None) -> Dict:
     """
@@ -161,9 +194,19 @@ async def perform_full_analysis(text: str, model_name: str, task_id: Optional[st
         entity_prompt = prompts.COMPREHENSIVE_ENTITY_EXTRACTION_PROMPT.format(text=text)
         entities_data = await _make_llm_call(entity_prompt, model_name)
         entities = entities_data.get("entities", [])
-        
+    
         if not entities:
             raise ValueError("No entities extracted in Pass 1")
+        
+        # --- NEW: Validation Pass ---
+        warnings = validate_extracted_entities(entities, text)
+        if warnings:
+            print("⚠️ ENTITY EXTRACTION WARNINGS:")
+            for warning in warnings[:5]:  # Limit to 5 warnings
+                print(f"   - {warning}")
+            print("   Consider re-running extraction with stricter instructions.")
+        # --- END NEW ---
+        
         print(f"✓ Extracted {len(entities)} entities")
         
         # --- PASS 2: Hierarchy Extraction (with validation) ---

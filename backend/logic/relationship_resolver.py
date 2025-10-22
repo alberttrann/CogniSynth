@@ -35,21 +35,26 @@ class RelationshipResolver:
         
         return rewritten
     
-    # In relationship_resolver.py
     def deduplicate_and_resolve_conflicts(self, relationships: List[Dict]) -> List[Dict]:
-        """More aggressive deduplication"""
+        """
+        Deduplicate relationships while preserving directionality.
+        CRITICAL: Uses directional keys to maintain source->target semantics.
+        """
         from collections import defaultdict
         
         grouped = defaultdict(list)
         
         for rel in relationships:
-            # Group by BOTH directions to catch bidirectional duplicates
-            key1 = (rel["source"], rel["target"])
-            key2 = (rel["target"], rel["source"])  # Reverse direction
+            # CRITICAL FIX #1: Skip self-loops entirely
+            if rel["source"] == rel["target"]:
+                print(f"⚠️ Skipping self-loop: {rel['source']} -> {rel['target']}")
+                continue
             
-            # Use canonical ordering
-            canonical_key = tuple(sorted([rel["source"], rel["target"]]))
-            grouped[canonical_key].append(rel)
+            # CRITICAL FIX #2: Use directional key (do NOT sort)
+            # This preserves the semantic difference between:
+            # (A, "causes", B) vs (B, "is caused by", A)
+            key = (rel["source"], rel["target"])
+            grouped[key].append(rel)
         
         deduplicated = []
         
@@ -65,6 +70,8 @@ class RelationshipResolver:
     
     # In relationship_resolver.py
     def _resolve_relationship_conflict(self, rel_group: List[Dict]) -> Dict:
+        """Choose the best relationship from a group of duplicates."""
+        
         # Prioritize specific relationship types
         category_priority = {
             "CAUSAL": 5,          # "causes", "enables", "results in"
@@ -78,27 +85,40 @@ class RelationshipResolver:
         # Generic labels to deprioritize
         generic_labels = {"is related to", "is associated with", "connects to"}
         
-        def score_relationship(rel: Dict) -> Tuple[int, int, int]:
+        def score_relationship(rel: Dict) -> Tuple[int, int, int, int]:
             category_score = category_priority.get(rel.get("category", "ASSOCIATIVE"), 0)
             label = rel.get("natural_language_label", "")
             specificity_score = 0 if label in generic_labels else 1
-            explanation_length = len(rel.get("explanation", ""))
             
-            return (category_score, specificity_score, explanation_length)
+            # --- FIX: Penalize merged explanations ---
+            explanation = rel.get("explanation", "")
+            merge_penalty = -explanation.count(" | ")  # Each " | " indicates a merge
+            # --- END FIX ---
+            
+            explanation_length = len(explanation)
+            
+            return (category_score, specificity_score, merge_penalty, explanation_length)
         
         # Choose best relationship
         best_rel = max(rel_group, key=score_relationship)
         
-        # Optionally merge explanations
+        # --- FIX: Don't merge explanations if they're fundamentally different ---
         all_explanations = [r["explanation"] for r in rel_group if r.get("explanation")]
-        if len(all_explanations) > 1:
-            # Combine unique explanations
+        
+        # Only combine if there are 2-3 similar explanations
+        if 2 <= len(all_explanations) <= 3:
             unique_explanations = []
             seen = set()
             for exp in all_explanations:
-                if exp not in seen:
+                exp_normalized = exp.lower().strip()
+                if exp_normalized not in seen:
                     unique_explanations.append(exp)
-                    seen.add(exp)
-            best_rel["explanation"] = " | ".join(unique_explanations)
+                    seen.add(exp_normalized)
+            
+            # Only merge if explanations are complementary (not contradictory)
+            if len(unique_explanations) <= 2:
+                best_rel["explanation"] = " | ".join(unique_explanations)
+        # Otherwise, keep only the best explanation (don't merge)
+        # --- END FIX ---
         
         return best_rel
