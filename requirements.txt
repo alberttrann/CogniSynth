@@ -1,0 +1,22 @@
+# Existing dependencies
+fastapi
+uvicorn
+streamlit
+requests
+pandas
+pyecharts
+streamlit-echarts
+openai
+python-dotenv
+networkx
+
+# NEW for Phase 1:
+sqlalchemy>=2.0.0
+alembic  # For database migrations (optional but recommended)
+
+sentence-transformers  # For entity embeddings
+scikit-learn  # For similarity computation
+numpy  # For embedding operations
+
+sse-starlette 
+sseclient-py
